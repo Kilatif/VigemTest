@@ -4,51 +4,46 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Nefarius.ViGEm.Client;
-using Nefarius.ViGEm.Client.Targets;
-using Nefarius.ViGEm.Client.Targets.DualShock4;
-using static Nefarius.ViGEm.Client.Targets.DualShock4.DualShock4Buttons;
+using HidSharp;
+using HidSharp.Reports;
 
 namespace VigemTest
 {
+
     class RootController
     {
         public void Run()
         {
-            var vClient = new ViGEmClient();
-            var dsTarget = new DualShock4Controller(vClient);
-            dsTarget.Connect();
+            var list = DeviceList.Local;
 
-            Console.ReadLine();
+            var hidDeviceList = list.GetHidDevices().ToArray();
+            hidDeviceList = hidDeviceList.Where(dev => dev.GetManufacturer().Contains("Nintendo")).ToArray();
 
-            dsTarget.SendReport(new DualShock4Report
+            if (hidDeviceList.Length == 0)
             {
-                Buttons = (ushort)(Square | Circle | Triangle | Cross),
-               // SixAxes = new byte[] {0x00, 0x00, 0x00, 0xA0, 0xA1, 0xB0, 0xB1, 0xC0, 0xC1, 0xD0, 0xD1, 0xE0, 0xE1, 0xF0, 0xF1}
-            });
+                return;
+            }
 
+            var device = hidDeviceList[0];
 
-            Console.ReadLine();
-
-            dsTarget.Disconnect();
-        }
-
-        private async Task SendReports(DualShock4Controller target, CancellationToken stopToken)
-        {
-            do
+            if (device.TryOpen(out var stream))
             {
-                target.SendReport(new DualShock4Report
-                {
-                    Buttons = (ushort)(Square | Circle | Triangle | Cross),
-                });
+                stream.ReadTimeout = Timeout.Infinite;
+                var reportDescriptor = device.GetReportDescriptor();
+                var inputReportBuffer = new byte[device.GetMaxInputReportLength()];
+                var inputReceiver = reportDescriptor.CreateHidDeviceInputReceiver();
 
-                await Task.Delay(10, stopToken);
-                if (stopToken.IsCancellationRequested)
+                inputReceiver.Received += (sender, e) =>
                 {
-                    return;
-                }
+                    inputReceiver.TryRead(inputReportBuffer, 0, out _);
+                };
 
-            } while (true);
+                inputReceiver.Start(stream);
+            }
+
+            Console.ReadKey();
+
+            stream.Dispose();
         }
     }
 }
